@@ -68,13 +68,13 @@ jobs:
           # Function to install NVM if not present
           install_nvm() {
             if [ ! -d "$HOME/.nvm" ]; then
-              echo "📦 Installing NVM..."
+              echo "Installing NVM..."
               curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
               export NVM_DIR="$HOME/.nvm"
               [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-              echo "✅ NVM installed"
+              echo "NVM installed"
             else
-              echo "✅ NVM already installed"
+              echo "NVM already installed"
             fi
           }
           
@@ -92,24 +92,24 @@ jobs:
           
           # Install Node.js if not present
           if ! command -v node &> /dev/null; then
-            echo "📦 Installing Node.js ${{ env.NODE_VERSION }}..."
+            echo "Installing Node.js ${{ env.NODE_VERSION }}..."
             nvm install ${{ env.NODE_VERSION }}
             nvm use ${{ env.NODE_VERSION }}
             nvm alias default ${{ env.NODE_VERSION }}
-            echo "✅ Node.js $(node --version) installed"
+            echo "Node.js $(node --version) installed"
           else
-            echo "✅ Node.js $(node --version) already installed"
+            echo "Node.js $(node --version) already installed"
             nvm install ${{ env.NODE_VERSION }}
             nvm use ${{ env.NODE_VERSION }}
           fi
           
           # Install PM2 if not present
           if ! command -v pm2 &> /dev/null; then
-            echo "📦 Installing PM2..."
+            echo "Installing PM2..."
             npm install -g pm2
-            echo "✅ PM2 installed"
+            echo "PM2 installed"
           else
-            echo "✅ PM2 $(pm2 --version) already installed"
+            echo "PM2 $(pm2 --version) already installed"
           fi
           
           # Verify installations
@@ -191,7 +191,7 @@ jobs:
             elif [ -f "server.js" ]; then
               SERVER_FILE="server.js"
             else
-              echo "❌ Error: server.js not found in backend/ or backend/src/"
+              echo "Error: server.js not found in backend/ or backend/src/"
               exit 1
             fi
             
@@ -205,10 +205,9 @@ jobs:
               echo "Starting new PM2 process..."
               pm2 start $SERVER_FILE --name bmi-backend
               pm2 save
-              pm2 startup systemd -u $USER --hp $HOME
             fi
             
-            echo "✅ Backend deployed successfully"
+            echo "Backend deployed successfully"
             cd ..
           fi
           
@@ -240,13 +239,13 @@ jobs:
             # Reload Nginx
             sudo systemctl reload nginx
             
-            echo "✅ Frontend deployed successfully"
+            echo "Frontend deployed successfully"
             cd ..
           fi
           
           echo ""
           echo "=========================================="
-          echo "🎉 Deployment Completed Successfully!"
+          echo "Deployment Completed Successfully"
           echo "=========================================="
           echo ""
         ENDSSH
@@ -273,9 +272,9 @@ jobs:
           HEALTH_CHECK=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/health || echo "000")
           
           if [ "$HEALTH_CHECK" = "200" ]; then
-            echo "✅ Backend health check passed (HTTP $HEALTH_CHECK)"
+            echo "Backend health check passed (HTTP $HEALTH_CHECK)"
           else
-            echo "❌ Backend health check failed (HTTP $HEALTH_CHECK)"
+            echo "Backend health check failed (HTTP $HEALTH_CHECK)"
             echo "Backend logs:"
             pm2 logs bmi-backend --lines 20 --nostream
             exit 1
@@ -287,14 +286,14 @@ jobs:
           pm2 status
           
           echo ""
-          echo "✅ All health checks passed!"
+          echo "All health checks passed"
           echo ""
         ENDSSH
 
     - name: Deployment Summary
       if: always()
       run: |
-        echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "| Item | Value |" >> $GITHUB_STEP_SUMMARY
         echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
@@ -304,13 +303,13 @@ jobs:
         echo "| **Deployed to** | ${{ secrets.EC2_HOST }} |" >> $GITHUB_STEP_SUMMARY
         echo "| **Status** | ${{ job.status }} |" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 🔗 Quick Links" >> $GITHUB_STEP_SUMMARY
-        echo "- 🌐 **Application**: http://${{ secrets.EC2_HOST }}" >> $GITHUB_STEP_SUMMARY
-        echo "- 🔍 **Health Check**: http://${{ secrets.EC2_HOST }}:3000/health" >> $GITHUB_STEP_SUMMARY
-        echo "- 📊 **API Endpoint**: http://${{ secrets.EC2_HOST }}/api/measurements" >> $GITHUB_STEP_SUMMARY
+        echo "### Quick Links" >> $GITHUB_STEP_SUMMARY
+        echo "- **Application**: http://${{ secrets.EC2_HOST }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Health Check**: http://${{ secrets.EC2_HOST }}:3000/health" >> $GITHUB_STEP_SUMMARY
+        echo "- **API Endpoint**: http://${{ secrets.EC2_HOST }}/api/measurements" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         if [ "${{ job.status }}" = "success" ]; then
-          echo "✅ **Deployment completed successfully!**" >> $GITHUB_STEP_SUMMARY
+          echo "**Deployment completed successfully**" >> $GITHUB_STEP_SUMMARY
         else
-          echo "❌ **Deployment failed. Check logs for details.**" >> $GITHUB_STEP_SUMMARY
+          echo "**Deployment failed. Check logs for details.**" >> $GITHUB_STEP_SUMMARY
         fi
