@@ -26,6 +26,7 @@ env:
   FRONTEND_DEPLOY_PATH: /var/www/bmi-health-tracker
   DB_NAME: bmidb
   DB_USER: bmi_user
+  NODE_VERSION: 'lts/*'
 
 jobs:
   deploy:
@@ -55,6 +56,72 @@ jobs:
       run: |
         ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "echo 'SSH connection successful'"
 
+    - name: Install Prerequisites (if needed)
+      run: |
+        ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'ENDSSH'
+          set -e
+          
+          echo "=========================================="
+          echo "Installing/Verifying Prerequisites"
+          echo "=========================================="
+          
+          # Function to install NVM if not present
+          install_nvm() {
+            if [ ! -d "$HOME/.nvm" ]; then
+              echo "📦 Installing NVM..."
+              curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+              export NVM_DIR="$HOME/.nvm"
+              [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+              echo "✅ NVM installed"
+            else
+              echo "✅ NVM already installed"
+            fi
+          }
+          
+          # Function to load NVM
+          load_nvm() {
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+          }
+          
+          # Install NVM
+          install_nvm
+          
+          # Load NVM
+          load_nvm
+          
+          # Install Node.js if not present
+          if ! command -v node &> /dev/null; then
+            echo "📦 Installing Node.js ${{ env.NODE_VERSION }}..."
+            nvm install ${{ env.NODE_VERSION }}
+            nvm use ${{ env.NODE_VERSION }}
+            nvm alias default ${{ env.NODE_VERSION }}
+            echo "✅ Node.js $(node --version) installed"
+          else
+            echo "✅ Node.js $(node --version) already installed"
+            # Make sure we're using LTS
+            nvm install ${{ env.NODE_VERSION }}
+            nvm use ${{ env.NODE_VERSION }}
+          fi
+          
+          # Install PM2 if not present
+          if ! command -v pm2 &> /dev/null; then
+            echo "📦 Installing PM2..."
+            npm install -g pm2
+            echo "✅ PM2 installed"
+          else
+            echo "✅ PM2 $(pm2 --version) already installed"
+          fi
+          
+          # Verify installations
+          echo ""
+          echo "Installed versions:"
+          echo "  Node: $(node --version)"
+          echo "  npm: $(npm --version)"
+          echo "  PM2: $(pm2 --version)"
+          echo ""
+        ENDSSH
+
     - name: Check if deployment exists
       id: check_deployment
       run: |
@@ -80,9 +147,19 @@ jobs:
         ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'ENDSSH'
           set -e
           
-          # Load NVM if exists
+          # Load NVM
           export NVM_DIR="$HOME/.nvm"
           [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+          
+          # Use Node LTS
+          nvm use ${{ env.NODE_VERSION }}
+          
+          echo "=========================================="
+          echo "Deploying Application"
+          echo "=========================================="
+          echo "Node: $(node --version)"
+          echo "npm: $(npm --version)"
+          echo ""
           
           # Clone or pull repository
           if [ ! -d "${{ env.DEPLOY_PATH }}" ]; then
@@ -99,8 +176,14 @@ jobs:
           
           # Deploy backend
           if [ "${{ github.event.inputs.frontend_only }}" != "true" ]; then
-            echo "Deploying backend..."
+            echo ""
+            echo "=========================================="
+            echo "Deploying Backend"
+            echo "=========================================="
             cd backend
+            
+            # Install dependencies
+            echo "Installing backend dependencies..."
             npm install
             
             # Restart backend with PM2
@@ -111,58 +194,112 @@ jobs:
               echo "Starting new PM2 process..."
               pm2 start server.js --name bmi-backend
               pm2 save
+              pm2 startup systemd -u $USER --hp $HOME
             fi
+            
+            echo "✅ Backend deployed successfully"
             cd ..
           fi
           
           # Deploy frontend
           if [ "${{ github.event.inputs.backend_only }}" != "true" ]; then
-            echo "Deploying frontend..."
+            echo ""
+            echo "=========================================="
+            echo "Deploying Frontend"
+            echo "=========================================="
             cd frontend
+            
+            # Install dependencies
+            echo "Installing frontend dependencies..."
             npm install
+            
+            # Build frontend
+            echo "Building frontend..."
             npm run build
             
             # Deploy to Nginx
+            echo "Deploying to Nginx..."
             sudo mkdir -p ${{ env.FRONTEND_DEPLOY_PATH }}
             sudo cp -r dist/* ${{ env.FRONTEND_DEPLOY_PATH }}/
             sudo chown -R www-data:www-data ${{ env.FRONTEND_DEPLOY_PATH }}
+            
+            # Test Nginx config
+            sudo nginx -t
+            
+            # Reload Nginx
             sudo systemctl reload nginx
+            
+            echo "✅ Frontend deployed successfully"
             cd ..
           fi
           
-          echo "Deployment completed successfully!"
+          echo ""
+          echo "=========================================="
+          echo "🎉 Deployment Completed Successfully!"
+          echo "=========================================="
+          echo ""
         ENDSSH
 
     - name: Health Check
       if: github.event.inputs.skip_health_check != 'true'
       run: |
         ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'ENDSSH'
-          echo "Running health checks..."
+          # Load NVM
+          export NVM_DIR="$HOME/.nvm"
+          [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+          
+          echo "=========================================="
+          echo "Running Health Checks"
+          echo "=========================================="
+          
+          # Wait for services to start
+          echo "Waiting for services to stabilize..."
           sleep 5
           
           # Check backend health
+          echo ""
+          echo "Testing backend health..."
           HEALTH_CHECK=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/health || echo "000")
           
           if [ "$HEALTH_CHECK" = "200" ]; then
-            echo "✅ Backend health check passed"
+            echo "✅ Backend health check passed (HTTP $HEALTH_CHECK)"
           else
             echo "❌ Backend health check failed (HTTP $HEALTH_CHECK)"
+            echo "Backend logs:"
+            pm2 logs bmi-backend --lines 20 --nostream
             exit 1
           fi
           
           # Check PM2 status
+          echo ""
+          echo "PM2 Status:"
           pm2 status
+          
+          echo ""
+          echo "✅ All health checks passed!"
+          echo ""
         ENDSSH
 
     - name: Deployment Summary
       if: always()
       run: |
-        echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "- **Repository:** ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Deployed to:** ${{ secrets.EC2_HOST }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+        echo "| Item | Value |" >> $GITHUB_STEP_SUMMARY
+        echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| **Repository** | ${{ github.repository }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Commit** | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Branch** | \`${{ github.ref_name }}\` |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Deployed to** | ${{ secrets.EC2_HOST }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Status** | ${{ job.status }} |" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "🌐 **Application URL:** http://${{ secrets.EC2_HOST }}" >> $GITHUB_STEP_SUMMARY
-        echo "🔍 **Health Check:** http://${{ secrets.EC2_HOST }}/api/health" >> $GITHUB_STEP_SUMMARY
+        echo "### 🔗 Quick Links" >> $GITHUB_STEP_SUMMARY
+        echo "- 🌐 **Application**: http://${{ secrets.EC2_HOST }}" >> $GITHUB_STEP_SUMMARY
+        echo "- 🔍 **Health Check**: http://${{ secrets.EC2_HOST }}:3000/health" >> $GITHUB_STEP_SUMMARY
+        echo "- 📊 **API Endpoint**: http://${{ secrets.EC2_HOST }}/api/measurements" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        if [ "${{ job.status }}" = "success" ]; then
+          echo "✅ **Deployment completed successfully!**" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ **Deployment failed. Check logs for details.**" >> $GITHUB_STEP_SUMMARY
+        fi
